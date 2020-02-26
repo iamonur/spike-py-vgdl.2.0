@@ -44,159 +44,192 @@ promela_comment_02 = """
 
 promela_header = """
 typedef row{ //2D arrays are not supported directly.
-	byte a[8];
+  byte a[8];
 }
-bit win = 0; // Becomes 1 when maze is won.
-bit dead = 0; // Becomes 1 when maze is lost.
-bool lock = 0; // Avatar and Enemy must not move interleavingly.
-row map[8];  // This becomes a 2D array.
+bit win = 0; //Becomes 1 when maze is won.
+bit dead = 0; //Becomes 1 when maze is lost.
+row map[8]; //This is a 2D array.
+
+chan avatar_turn = [0] of {bit}; //randez-vous at (start of avatar - end of opponent). If a 0 is arrived at this channel, avatar is dead. RIP.
+chan opponent_turn = [0] of {byte, byte}; //the opposite randez-vous. If portal's location arrives, avatar wins. If enemy's own location arrives, avatar loses.
+chan opponent_turn2 = [0] of {bit};
 """
 
 promela_avatar_process = """
-proctype avatar(byte x; byte y) {
-	map[x].a[y] = 2;
-	byte w, a, s, d;
-	do
-	:: ( (win == 0) && (dead == 0) ) ->
-		!lock; //Wait for your turn
-		atomic { // Even if it is locked, enemy not checking lock while avatar is moving may improve performance.
-			// Lookup for future checks.
-			w = map[x].a[y-1];
-			a = map[x-1].a[y];
-			s = map[x].a[y+1];
-			d = map[x+1].a[y];
+proctype avatar(byte x; byte y){
+  map[x].a[y] = 2;
+  byte w, a, s, d;
+  bit foo;
+  //bool start = true;
+  do
+  ::((win == 0) && (dead == 0)) ->
+    /*if
+    :: start ->
+      foo = 1;
+    :: else ->
+      avatar_turn ? <foo>; //empty the channel to make next randez-vous possible
+      start = false;
+    fi;*/
+
+    avatar_turn ? foo
+
+		if
+		:: foo == 0 -> //OMG THEY KILLED KENNY! USTEDES BASTARDOS!
+			dead = 1;
+			break
+    :: else -> skip
+		fi
+    //Look-up:
+    w = map[x].a[y-1];
+    a = map[x-1].a[y];
+    s = map[x].a[y+1];
+    d = map[x+1].a[y];
+
+    if
+    :: w != 1 -> printf("Avatar - W\\n");
+
+      if
+      :: w == 0 -> //Moved to an empty cell
+        map[x].a[y] = 0;
+				map[x].a[y-1] = 2;
+				y = y - 1
+			:: w == 3 -> //Moved to the goal, we won zulul
+				win = 1
+			:: w == 4 -> //You killed yourself boy
+				dead = 1
+			fi
+
+    :: a != 1 -> printf("Avatar - A\\n");
+
 			if
-			:: w != 1 -> // Chooses to move up if there is not a wall.
-				printf("Avatar - W\\n");
-				if
-				:: w == 0 -> // Regular move to an empty cell
-					map[x].a[y] = 0;
-					map[x].a[y-1] = 2;
-					y = y - 1
-				:: w == 3 -> // Move to the portal to win
-					win = 1
-				:: w == 4 -> // Move to the enemy to lose
-					dead = 1
-				fi;
-			:: a != 1 -> // Chooses to move left if there is not a wall
-				printf("Avatar - A\\n");
-				if
-				:: a == 0 -> // Regular move to an empty cell
-					map[x].a[y] = 0;
-					map[x-1].a[y] = 2;
-					x = x - 1
-				:: a == 3 -> // Move to the portal to win
-					win = 1
-				:: a == 4 -> // Move to the enemy to lose
-					dead = 1
-				fi;
-			:: s != 1 -> // Chooses to move down if there is not a wall
-				printf("Avatar - S\\n");
-				if
-				:: s == 0 -> // Regular move to an empty cell
-					map[x].a[y] = 0;
-					map[x].a[y+1] = 2;
-					y = y + 1
-				:: s == 3 -> // Move to the portal to win
-					win = 1
-				:: s == 4 -> // Move to the enemy to lose
-					dead = 1
-				fi;
-			:: d != 1 -> // Chooses to move right if there is not a wall
-				printf("Avatar - D\\n");
-				if
-				:: d == 0 -> // Regular move to an empty cell
-					map[x].a[y] = 0;
-					map[x+1].a[y] = 2;
-					x = x + 1
-				:: d == 3 -> // Move to the portal to win
-					win = 1
-				:: d == 4 -> // Move to the enemy to lose
-					dead = 1
-				fi;
-			:: true -> skip // May skip the turn
-			fi;
-		lock = 1 // Pass the turn no matter what you choose
-		}
-	:: ( (win == 1) ) ->
-		printf("Avatar - Win\\n");
-		lock = 1; // Pass the turn even if the game ends
-		break // Game ended
-	:: ( (dead == 1) ) ->
-		printf("Avatar - Dead\\n");
-		lock = 1;
-		break
-	od;
+			:: a == 0 -> //Moved to an empty cell
+        map[x].a[y] = 0;
+				map[x-1].a[y] = 2;
+				x = x - 1
+			:: a == 3 -> //Moved to the goal, we won zulul
+				win = 1
+			:: a == 4 -> //You killed yourself boy
+				dead = 1
+			fi
+
+    :: s != 1 -> printf("Avatar - S\\n");
+
+			if
+			:: s == 0 -> //Moved to an empty cell
+        map[x].a[y] = 0;
+				map[x].a[y+1] = 2;
+				y = y + 1
+			:: s == 3 -> //Moved to the goal, we won zulul
+				win = 1
+			:: s == 4 -> //You killed yourself boy
+				dead = 1
+			fi
+
+    :: d != 1 -> printf("Avatar - D\\n");
+
+			if
+			:: d == 0 -> //Moved to an empty cell
+        map[x].a[y] = 0;
+				map[x+1].a[y] = 2;
+				x = x + 1
+			:: d == 3 -> //Moved to the goal, we won zulul
+				win = 1
+			:: d == 4 -> //You killed yourself boy
+				dead = 1
+			fi
+
+		:: true -> skip
+    fi
+
+    if
+    :: (win || dead) ->
+      opponent_turn2!0;
+    :: else ->
+      opponent_turn2!1;
+      opponent_turn!x,y
+    fi
+		//TODO: Send coordinates & condition no matter what you do.
+  :: else ->	break
+  od;
+
+	if
+	:: (win == 1) -> printf("Avatar - Win\\n");
+		//TODO: Send that you win - Dude, this is not cool, this is a randezvous point. not cool at all. JUST NO.
+	:: (dead == 1) -> printf("Avatar - Dead\\n");
+		//TODO: Send that you lost
+	fi
 }
 """
 
 promela_opponent_process = """
 proctype opponent(byte x; byte y){
+  //This is by the way, a sh*tty implementation. I know.
+  //TODO: Fix this bs.
 	map[x].a[y] = 4;
-	byte w, a, s, d;
+	byte xx, yy;
+  byte w, a, s, d;
+	bit send;
 	do
-	:: ( (win == 0) && (dead == 0) ) -> // Game continues
-		lock; // Wait for your turn
-		atomic{  // Even if it is locked, avatar not checking lock while opponent is moving may improve performance.
-			//lookup
-			w = map[x].a[y-1];
-			a = map[x-1].a[y];
-			s = map[x].a[y+1];
-			d = map[x+1].a[y];
-			if
-			:: ( ( w != 1 ) && ( w != 3 ) ) -> //Move to up, cannot move on walls or portal.
-				printf("Opponent - W\\n");
-				if
-				:: w == 0 -> // Regular move
-					map[x].a[y-1] = 4;
-					map[x].a[y] = 0;
-					y = y - 1
-				:: w == 2 -> // Move to the avatar, make it lose
-					dead = 1
-				fi;
-			:: ( ( a != 1 ) && ( a != 3 ) ) -> //Move to left, cannot move on walls or portal.
-				printf("Opponent - A\\n");
-				if
-				:: a == 0 -> // Regular move
-					map[x-1].a[y] = 4;
-					map[x].a[y] = 0;
-					x = x - 1
-				:: a == 2 -> // Move to the avatar, make it lose
-					dead = 1
-				fi;
-			:: ( ( s != 1 ) && ( s != 3 ) ) -> // Move to down, cannot move on walls or portal.
-				printf("Opponent - S\\n");
-				if
-				:: s == 0 -> // Regular move.
-					map[x].a[y+1] = 4;
-					map[x].a[y] = 0;
-					y = y + 1
-				:: s == 2 -> // Move to the avatar, make it lose.
-					dead = 1
-				fi;
-			:: ( ( d != 1 ) && ( d != 3 ) ) -> // Move to right, cannot move on walls or portals.
-				printf("Opponent - D\\n");
-				if
-				:: d == 0 -> // Regular move.
-					map[x+1].a[y] = 4;
-					map[x].a[y] = 0;
-					x = x + 1
-				:: d == 2 -> // Move to the avatar, make it lose.
-					dead = 1
-				fi;
-			:: true -> skip // May skip a turn.
-			fi;
-			lock = 0 // Pass the turn no matter what you choose
-		}
-	:: ( (win == 1) ) -> // Game has ended
-		printf("Opponent - Win\\n");
-		lock = 0; // Pass the turn even if the game ends
-		break
-	:: ( (dead == 1) ) ->
-		printf("Opponent - Dead\\n");
-		lock = 0;
-		break
+  ::((win == 0) && (dead == 0)) -> //Play on
+    opponent_turn2?send;
+    if
+    :: send == 0 -> break; //Game ended.
+    :: else -> skip
+    fi
+    opponent_turn ? xx, yy; //Wait your turn here
+
+    //Then move!
+    //Lookup!
+    w = map[x].a[y-1];
+    a = map[x-1].a[y];
+    s = map[x].a[y+1];
+    d = map[x+1].a[y];
+
+    //try moving close to it, do not consider walls etc.
+    //default operation: noop
+
+    if
+    :: (x > xx) && (a != 1) && (a != 3) ->
+      printf("Opponent - A\\n");
+      map[x].a[y] = 0;
+      x = x - 1;
+      map[x].a[y] = 4
+    :: (x < xx) && (d != 1) && (d != 3) ->
+      printf("Opponent - D\\n");
+      map[x].a[y] = 0;
+      x = x + 1;
+      map[x].a[y] = 4
+    :: (y > yy) && (w != 1) && (w != 3) ->
+      printf("Opponent - W\\n");
+      map[x].a[y] = 0;
+      y = y - 1;
+      map[x].a[y] = 4
+    :: (y < yy) && (s != 1) && (s != 3) ->
+      printf("Opponent - S\\n");
+      map[x].a[y] = 0;
+      y = y + 1;
+      map[x].a[y] = 4
+    :: else -> skip
+    fi;
+
+    if
+    :: ((x == xx) && (y == yy)) -> //Stomped on it dude. No need to play anymore.
+      dead = 1;
+      avatar_turn!0;
+      break
+    :: else -> //Avatar survived.
+      avatar_turn!1;
+    fi;
+  :: else -> break
 	od;
+
+  if
+  :: win == 1 ->
+    printf("Opponent - Win\\n")
+  :: dead == 1 ->
+    printf("Opponent - Dead\\n")
+  fi
+
 }
 """
 
@@ -228,6 +261,7 @@ init{{
     map[{}].a[{}] = 3;
     run avatar({},{});
     run opponent({},{});
+	avatar_turn!1
 }}
 """
 #Formatted area:
